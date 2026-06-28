@@ -19,6 +19,7 @@ package cpuburst
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,7 +62,7 @@ func (w *AllowlistWatcher) Run(stopCh <-chan struct{}) error {
 	configDir := filepath.Dir(w.configPath)
 
 	if _, err := os.Stat(configDir); err != nil {
-		klog.Warningf("cpu burst allowlist config directory %v not accessible: %v", configDir, err)
+		klog.Warningf("cpuBurst allowlist config directory %v not accessible: %v", configDir, err)
 		return nil
 	}
 
@@ -92,60 +93,47 @@ func (w *AllowlistWatcher) Run(stopCh <-chan struct{}) error {
 // syncLoop is the main event loop for fsnotify events.
 func (w *AllowlistWatcher) syncLoop(stopCh <-chan struct{}) {
 	configFileName := filepath.Base(w.configPath)
-
 	// Debounce timer: coalesce rapid symlink-swap events into a single reload
-	// In other words, it turns 4 reloads per configmap change to 1 reload 
+	// (turns several events per ConfigMap change into one reload).
 	var debounceTimer *time.Timer
-	debounceCh := make(chan struct{}, 1)
-
-	triggerReload := func() {
-		select {
-		case debounceCh <- struct{}{}:
-		default: // a previous reload is pending, do nothing
-		}
-	}
 
 	for {
 		select {
+		case event, ok := <-w.watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Op&fsnotify.Chmod > 0 {
+				continue
+			}
+			name := filepath.Base(event.Name)
+			// React to the config file itself or the ..data / ..data_tmp symlinks
+			// used by the kubelet's atomic ConfigMap update.
+			if name == configFileName || strings.HasPrefix(name, "..data") {
+				// Debounce rapid successive events
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
+
+				klog.V(5).Infof("cpuBurst allowlist config change detected: %v %v", event.Op, event.Name)
+				debounceTimer = time.AfterFunc(100*time.Millisecond, func() {
+					w.loadAllowlist()
+					klog.V(4).Infof("cpuBurst allowlist reloaded from %v, %d entries", w.configPath, w.entryCount())
+				})
+			}
+
+		case err, ok := <-w.watcher.Errors:
+			if !ok {
+				return
+			}
+			klog.Warningf("cpuBurst allowlist watcher error: %v", err)
+
 		case <-stopCh:
 			if debounceTimer != nil {
 				debounceTimer.Stop()
 			}
 			w.watcher.Close()
 			return
-		case event, ok := <-w.watcher.Events:
-			if !ok {
-				return
-			}
-			// Ignore Chmod events
-			if event.Op&fsnotify.Chmod > 0 {
-				continue
-			}
-
-			eventName := filepath.Base(event.Name)
-
-			// Trigger reload on events involving:
-			// - the target config file (e.g., cpu-burst-allowlist.yaml)
-			// - the ..data symlink (K8s ConfigMap atomic update pattern)
-			// - ..data_tmp (temporary symlink during atomic update)
-			if eventName == configFileName || eventName == "..data" || eventName == "..data_tmp" {
-				klog.V(5).Infof("cpu burst allowlist config change detected: %v %v", event.Op, event.Name)
-				triggerReload()
-			}
-		case err, ok := <-w.watcher.Errors:
-			if !ok {
-				return
-			}
-			klog.Warningf("cpu burst allowlist watcher error: %v", err)
-		case <-debounceCh:
-			// Reset the debounce timer
-			if debounceTimer != nil {
-				debounceTimer.Stop()
-			}
-			debounceTimer = time.AfterFunc(100*time.Millisecond, func() {
-				w.loadAllowlist()
-				klog.V(4).Infof("cpu burst allowlist reloaded from %v, %d entries", w.configPath, w.entryCount())
-			})
 		}
 	}
 }
@@ -157,7 +145,7 @@ func (w *AllowlistWatcher) loadAllowlist() {
 	data, err := os.ReadFile(w.configPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			klog.Warningf("failed to read cpu burst allowlist config file %v: %v", w.configPath, err)
+			klog.Warningf("failed to read cpuBurst allowlist config file %v: %v", w.configPath, err)
 		}
 		// File doesn't exist yet (optional ConfigMap) - keep current allowlist
 		return
@@ -165,7 +153,7 @@ func (w *AllowlistWatcher) loadAllowlist() {
 
 	var config podAllowlistConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		klog.Warningf("failed to parse cpu burst allowlist config file %v: %v; keeping previous allowlist", w.configPath, err)
+		klog.Warningf("failed to parse cpuBurst allowlist config file %v: %v; keeping previous allowlist", w.configPath, err)
 		// Keep previous allowlist on parse error - don't clear it
 		return
 	}
@@ -173,7 +161,7 @@ func (w *AllowlistWatcher) loadAllowlist() {
 	newAllowlist := make(map[string]map[string]struct{})
 	for _, entry := range config.PodAllowlist {
 		if entry.Namespace == "" || entry.GenerateName == "" {
-			klog.V(5).Infof("skipping cpu burst allowlist entry with empty namespace or generateName: %+v", entry)
+			klog.V(5).Infof("skipping cpuBurst allowlist entry with empty namespace or generateName: %+v", entry)
 			continue
 		}
 		if newAllowlist[entry.Namespace] == nil {
@@ -186,7 +174,7 @@ func (w *AllowlistWatcher) loadAllowlist() {
 	w.allowlist = newAllowlist
 	w.Unlock()
 
-	klog.V(4).Infof("loaded cpu burst allowlist from %v: %d entries across %d namespaces",
+	klog.V(4).Infof("loaded cpuBurst allowlist from %v: %d entries across %d namespaces",
 		w.configPath, w.entryCount(), len(newAllowlist))
 }
 
