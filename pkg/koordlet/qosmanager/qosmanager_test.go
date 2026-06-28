@@ -42,7 +42,7 @@ func TestNewResManager(t *testing.T) {
 		statesInformer := mock_statesinformer.NewMockStatesInformer(ctrl)
 		metricCache := mock_metriccache.NewMockMetricCache(ctrl)
 
-		r := NewQOSManager(framework.NewDefaultConfig(), scheme, kubeClient, nodeName, statesInformer, metricCache, maframework.NewDefaultConfig(), policyv1.SchemeGroupVersion.String(), "")
+		r := NewQOSManager(framework.NewDefaultConfig(), scheme, kubeClient, nodeName, statesInformer, metricCache, maframework.NewDefaultConfig(), policyv1.SchemeGroupVersion.String(), "", false)
 		assert.NotNil(t, r)
 	})
 }

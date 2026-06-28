@@ -177,7 +177,10 @@ type cpuBurst struct {
 
 func New(opt *framework.Options) framework.QOSStrategy {
 	var watcher *AllowlistWatcher
-	if opt.CPUBurstAllowlistPath != "" {
+	// The allowlist is opt-in: it is only enforced when explicitly enabled via
+	// the cpu-burst-allowlist-enabled flag. When enabled, only pods listed in
+	// the allowlist ConfigMap receive CPU burst.
+	if opt.CPUBurstAllowlistEnabled && opt.CPUBurstAllowlistPath != "" {
 		watcher = NewAllowlistWatcher(opt.CPUBurstAllowlistPath)
 	}
 	return &cpuBurst{
@@ -227,10 +230,6 @@ func (b *cpuBurst) start() {
 	b.nodeCPUBurstStrategy = nodeSLO.Spec.CPUBurstStrategy
 	podsMeta := b.statesInformer.GetAllPods()
 
-	// The allowlist only restricts bursting when it has at least one entry;
-	// an absent or empty allowlist leaves bursting unrestricted (the default).
-	allowlistActive := b.allowlistWatcher != nil && b.allowlistWatcher.entryCount() > 0
-
 	// get node state by node share pool usage
 	nodeState := b.getNodeStateForBurst(*b.nodeCPUBurstStrategy.SharePoolThresholdPercent, podsMeta)
 	klog.V(5).Infof("get node state %v for cpu burst", nodeState)
@@ -249,13 +248,14 @@ func (b *cpuBurst) start() {
 			continue
 		}
 
-		// If a non-empty CPU burst allowlist is configured, restrict bursting to
-		// the listed (namespace, generateName) pods. An absent or empty allowlist
-		// means no restriction (burst applies to all matching pods as before).
-		if allowlistActive && !b.allowlistWatcher.IsPodAllowed(podMeta.Pod.Namespace, podMeta.Pod.GenerateName) {
-			klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping",
-				podMeta.Pod.Namespace, podMeta.Pod.Name)
-			continue
+		// If the CPU burst allowlist is enabled, restrict bursting to the pods
+		// listed in the allowlist (by namespace + generateName).
+		if b.allowlistWatcher != nil {
+			if !b.allowlistWatcher.IsPodAllowed(podMeta.Pod.Namespace, podMeta.Pod.GenerateName) {
+				klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping",
+					podMeta.Pod.Namespace, podMeta.Pod.Name)
+				continue
+			}
 		}
 
 		// merge burst config from pod and node

@@ -27,13 +27,14 @@ import (
 )
 
 type Options struct {
-	CgroupReader            resourceexecutor.CgroupReader
-	StatesInformer          statesinformer.StatesInformer
-	MetricCache             metriccache.MetricCache
-	EventRecorder           record.EventRecorder
-	KubeClient              clientset.Interface
-	EvictVersion            string
-	Config                  *Config
-	MetricAdvisorConfig     *ma.Config
-	CPUBurstAllowlistPath   string
+	CgroupReader             resourceexecutor.CgroupReader
+	StatesInformer           statesinformer.StatesInformer
+	MetricCache              metriccache.MetricCache
+	EventRecorder            record.EventRecorder
+	KubeClient               clientset.Interface
+	EvictVersion             string
+	Config                   *Config
+	MetricAdvisorConfig      *ma.Config
+	CPUBurstAllowlistPath    string
+	CPUBurstAllowlistEnabled bool
 }

@@ -58,6 +58,7 @@ func NewQOSManager(
 	metricAdvisorConfig *ma.Config,
 	evictVersion string,
 	cpuBurstAllowlistPath string,
+	cpuBurstAllowlistEnabled bool,
 ) QOSManager {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(&clientcorev1.EventSinkImpl{Interface: kubeClient.CoreV1().Events("")})
@@ -66,15 +67,16 @@ func NewQOSManager(
 	evictor := qosmanagerUtil.NewEvictor(kubeClient, recorder, evictVersion)
 
 	opt := &framework.Options{
-		CgroupReader:          cgroupReader,
-		StatesInformer:        statesInformer,
-		MetricCache:           metricCache,
-		EventRecorder:         recorder,
-		KubeClient:            kubeClient,
-		EvictVersion:          evictVersion,
-		Config:                cfg,
-		MetricAdvisorConfig:   metricAdvisorConfig,
-		CPUBurstAllowlistPath: cpuBurstAllowlistPath,
+		CgroupReader:             cgroupReader,
+		StatesInformer:           statesInformer,
+		MetricCache:              metricCache,
+		EventRecorder:            recorder,
+		KubeClient:               kubeClient,
+		EvictVersion:             evictVersion,
+		Config:                   cfg,
+		MetricAdvisorConfig:      metricAdvisorConfig,
+		CPUBurstAllowlistPath:    cpuBurstAllowlistPath,
+		CPUBurstAllowlistEnabled: cpuBurstAllowlistEnabled,
 	}
 
 	ctx := &framework.Context{
