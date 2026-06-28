@@ -92,7 +92,6 @@ func (w *AllowlistWatcher) Run(stopCh <-chan struct{}) error {
 
 // syncLoop is the main event loop for fsnotify events.
 func (w *AllowlistWatcher) syncLoop(stopCh <-chan struct{}) {
-	configFileName := filepath.Base(w.configPath)
 	// Debounce timer: coalesce rapid symlink-swap events into a single reload
 	// (turns several events per ConfigMap change into one reload).
 	var debounceTimer *time.Timer
@@ -107,9 +106,9 @@ func (w *AllowlistWatcher) syncLoop(stopCh <-chan struct{}) {
 				continue
 			}
 			name := filepath.Base(event.Name)
-			// React to the config file itself or the ..data / ..data_tmp symlinks
-			// used by the kubelet's atomic ConfigMap update.
-			if name == configFileName || strings.HasPrefix(name, "..data") {
+			// React to the ..data / ..data_tmp symlinks swapped by the kubelet's
+			// atomic ConfigMap update.
+			if strings.HasPrefix(name, "..data") {
 				// Debounce rapid successive events
 				if debounceTimer != nil {
 					debounceTimer.Stop()

@@ -17,6 +17,7 @@ limitations under the License.
 package cpuburst
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -235,34 +236,29 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "cpu-burst-allowlist.yaml")
 
-	// Write initial allowlist
-	initialContent := `podAllowlist:
+	// Write the initial allow list
+	writeConfigMapVersion(t, tmpDir, 1, `podAllowlist:
   - namespace: "production"
     generateName: "web-app-"
-`
-	err := os.WriteFile(configPath, []byte(initialContent), 0644)
-	assert.NoError(t, err)
+`)
 
 	w := NewAllowlistWatcher(configPath)
 
 	stopCh := make(chan struct{})
 	defer close(stopCh)
 
-	err = w.Run(stopCh)
-	assert.NoError(t, err)
+	assert.NoError(t, w.Run(stopCh))
 
 	// Give the watcher a moment to load the initial file
 	time.Sleep(200 * time.Millisecond)
 
 	assert.True(t, w.IsPodAllowed("production", "web-app-"))
 
-	// Update the file
-	updatedContent := `podAllowlist:
+	// Simulate a kubelet atomic ConfigMap update: new timestamped dir + ..data swap.
+	updateConfigMapVersion(t, tmpDir, 2, `podAllowlist:
   - namespace: "staging"
     generateName: "api-server-"
-`
-	err = os.WriteFile(configPath, []byte(updatedContent), 0644)
-	assert.NoError(t, err)
+`)
 
 	// Wait for the debounce timer + reload
 	time.Sleep(500 * time.Millisecond)
@@ -270,6 +266,38 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 	// Old entry should be gone, new entry should be present
 	assert.False(t, w.IsPodAllowed("production", "web-app-"))
 	assert.True(t, w.IsPodAllowed("staging", "api-server-"))
+}
+
+// writeConfigMapVersion sets up the initial ConfigMap symlink layout in dir,
+// mirroring how the kubelet mounts a ConfigMap volume:
+//   <dir>/cpu-burst-allowlist.yaml -> ..data/cpu-burst-allowlist.yaml   (stable per-key symlink)
+//   <dir>/..data                  -> ..vN/                             (the atomic switch)
+//   <dir>/..vN/cpu-burst-allowlist.yaml                              (the real file)
+func writeConfigMapVersion(t *testing.T, dir string, version int, content string) {
+	t.Helper()
+	revDir := filepath.Join(dir, fmt.Sprintf("..v%d", version))
+	assert.NoError(t, os.MkdirAll(revDir, 0755))
+	assert.NoError(t, os.WriteFile(filepath.Join(revDir, "cpu-burst-allowlist.yaml"), []byte(content), 0644))
+	// Per-key symlink -> ..data/cpu-burst-allowlist.yaml (stable across updates).
+	assert.NoError(t, os.Symlink(filepath.Join("..data", "cpu-burst-allowlist.yaml"), filepath.Join(dir, "cpu-burst-allowlist.yaml")))
+	// ..data -> ..vN (the symlink the watcher reacts to).
+	assert.NoError(t, os.Symlink(fmt.Sprintf("..v%d", version), filepath.Join(dir, "..data")))
+}
+
+// updateConfigMapVersion simulates a kubelet atomic ConfigMap update: it writes
+// the new content into a fresh timestamped directory, then atomically swaps the
+// ..data symlink to point at it (via ..data_tmp), exactly as the kubelet does.
+func updateConfigMapVersion(t *testing.T, dir string, version int, content string) {
+	t.Helper()
+	revDir := filepath.Join(dir, fmt.Sprintf("..v%d", version))
+	assert.NoError(t, os.MkdirAll(revDir, 0755))
+	assert.NoError(t, os.WriteFile(filepath.Join(revDir, "cpu-burst-allowlist.yaml"), []byte(content), 0644))
+
+	// Atomic swap: create ..data_tmp -> new dir, rename it over ..data.
+	dataTmp := filepath.Join(dir, "..data_tmp")
+	_ = os.Remove(dataTmp) // remove a stale leftover, if any
+	assert.NoError(t, os.Symlink(fmt.Sprintf("..v%d", version), dataTmp))
+	assert.NoError(t, os.Rename(dataTmp, filepath.Join(dir, "..data")))
 }
 
 func TestNewAllowlistWatcher(t *testing.T) {
