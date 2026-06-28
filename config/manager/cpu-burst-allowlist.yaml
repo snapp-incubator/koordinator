@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cpu-burst-allowlist
+  namespace: system
+data:
+  cpu-burst-allowlist.yaml: |
+    podAllowlist: []

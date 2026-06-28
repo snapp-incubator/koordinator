@@ -10,6 +10,7 @@ resources:
   - koord-mid.yaml
   - koord-prod.yaml
   - slo-controller-config.yaml
+  - cpu-burst-allowlist.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

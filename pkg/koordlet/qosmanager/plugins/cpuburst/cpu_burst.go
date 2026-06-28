@@ -19,7 +19,6 @@ package cpuburst
 import (
 	"encoding/json"
 	"fmt"
-
 	"math/rand"
 	"strconv"
 	"time"
@@ -173,9 +172,14 @@ type cpuBurst struct {
 	cgroupReader          resourceexecutor.CgroupReader
 	nodeCPUBurstStrategy  *slov1alpha1.CPUBurstStrategy
 	containerLimiter      map[string]*burstLimiter
+	allowlistWatcher      *AllowlistWatcher
 }
 
 func New(opt *framework.Options) framework.QOSStrategy {
+	var watcher *AllowlistWatcher
+	if opt.CPUBurstAllowlistPath != "" {
+		watcher = NewAllowlistWatcher(opt.CPUBurstAllowlistPath)
+	}
 	return &cpuBurst{
 		reconcileInterval:     time.Duration(opt.Config.ReconcileIntervalSeconds) * time.Second,
 		metricCollectInterval: opt.MetricAdvisorConfig.CollectResUsedInterval,
@@ -184,6 +188,7 @@ func New(opt *framework.Options) framework.QOSStrategy {
 		executor:              resourceexecutor.NewResourceUpdateExecutor(),
 		cgroupReader:          opt.CgroupReader,
 		containerLimiter:      make(map[string]*burstLimiter),
+		allowlistWatcher:      watcher,
 	}
 }
 
@@ -202,6 +207,11 @@ func (b *cpuBurst) Run(stopCh <-chan struct{}) {
 
 func (b *cpuBurst) init(stopCh <-chan struct{}) {
 	b.executor.Run(stopCh)
+	if b.allowlistWatcher != nil {
+		if err := b.allowlistWatcher.Run(stopCh); err != nil {
+			klog.Warningf("failed to start cpu burst allowlist watcher: %v", err)
+		}
+	}
 }
 
 func (b *cpuBurst) start() {
@@ -233,6 +243,15 @@ func (b *cpuBurst) start() {
 		if util.IsPodInactive(podMeta.Pod) {
 			// ignore pods that status.phase is not pending or running
 			continue
+		}
+
+		// check if the pod is in the CPU burst allowlist (if configured)
+		if b.allowlistWatcher != nil {
+			if !b.allowlistWatcher.IsPodAllowed(podMeta.Pod.Namespace, podMeta.Pod.GenerateName) {
+				klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping",
+					podMeta.Pod.Namespace, podMeta.Pod.Name)
+				continue
+			}
 		}
 
 		// merge burst config from pod and node
