@@ -94,14 +94,14 @@ func (w *AllowlistWatcher) syncLoop(stopCh <-chan struct{}) {
 	configFileName := filepath.Base(w.configPath)
 
 	// Debounce timer: coalesce rapid symlink-swap events into a single reload
+	// In other words, it turns 4 reloads per configmap change to 1 reload 
 	var debounceTimer *time.Timer
 	debounceCh := make(chan struct{}, 1)
 
 	triggerReload := func() {
 		select {
 		case debounceCh <- struct{}{}:
-		default:
-			// already pending
+		default: // a previous reload is pending, do nothing
 		}
 	}
 
@@ -131,16 +131,6 @@ func (w *AllowlistWatcher) syncLoop(stopCh <-chan struct{}) {
 			if eventName == configFileName || eventName == "..data" || eventName == "..data_tmp" {
 				klog.V(5).Infof("cpu burst allowlist config change detected: %v %v", event.Op, event.Name)
 				triggerReload()
-			}
-
-			// If a new directory is created inside the watch dir (e.g., ..2026_06_22_...),
-			// watch it so we catch writes to files inside it.
-			if event.Op&fsnotify.Create > 0 {
-				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					if err := w.watcher.Add(event.Name); err != nil {
-						klog.V(5).Infof("failed to add watch on %v: %v", event.Name, err)
-					}
-				}
 			}
 		case err, ok := <-w.watcher.Errors:
 			if !ok {
