@@ -60,15 +60,9 @@ func NewAllowlistWatcher(configPath string) *AllowlistWatcher {
 func (w *AllowlistWatcher) Run(stopCh <-chan struct{}) error {
 	configDir := filepath.Dir(w.configPath)
 
-	// If the directory doesn't exist, create it and wait for the ConfigMap to be mounted.
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		klog.Infof("cpu burst allowlist config directory %v does not exist, creating it", configDir)
-		if err := os.MkdirAll(configDir, 0755); err != nil {
-			// In case of failure, start a periodic check for the directory to appear
-			klog.Warningf("failed to create cpu burst allowlist config directory %v: %v", configDir, err)
-			go w.waitForDirectory(stopCh)
-			return nil
-		}
+	if _, err := os.Stat(configDir); err != nil {
+		klog.Warningf("cpu burst allowlist config directory %v not accessible: %v", configDir, err)
+		return nil
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -81,7 +75,9 @@ func (w *AllowlistWatcher) Run(stopCh <-chan struct{}) error {
 		klog.Warningf("failed to add watch on directory %v: %v", configDir, err)
 		w.watcher.Close()
 		w.watcher = nil
-		go w.waitForDirectory(stopCh)
+		// Best-effort: still load the initial allowlist once even though we
+		// can't watch for changes. The pod can be restarted to recover.
+		w.loadAllowlist()
 		return nil
 	}
 
@@ -91,30 +87,6 @@ func (w *AllowlistWatcher) Run(stopCh <-chan struct{}) error {
 	go w.syncLoop(stopCh)
 
 	return nil
-}
-
-// waitForDirectory periodically checks for the config directory to appear,
-// then starts the normal watcher. This handles the case where the optional
-// ConfigMap hasn't been created yet.
-func (w *AllowlistWatcher) waitForDirectory(stopCh <-chan struct{}) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-stopCh:
-			return
-		case <-ticker.C:
-			configDir := filepath.Dir(w.configPath)
-			if _, err := os.Stat(configDir); err == nil {
-				klog.Infof("cpu burst allowlist config directory %v now exists, starting watcher", configDir)
-				if runErr := w.Run(stopCh); runErr != nil {
-					klog.Warningf("failed to start cpu burst allowlist watcher: %v", runErr)
-				}
-				return
-			}
-		}
-	}
 }
 
 // syncLoop is the main event loop for fsnotify events.
