@@ -417,11 +417,29 @@ func TestCPUBurst_getNodeStateForBurst(t *testing.T) {
 
 func Test_genPodBurstConfig(t *testing.T) {
 
+	// allowlistWith builds an AllowlistWatcher pre-populated with the given
+	// namespace/serviceAccountName pairs, so tests can exercise the allow path
+	// without touching the filesystem.
+	allowlistWith := func(entries ...[2]string) *AllowlistWatcher {
+		w := NewAllowlistWatcher("/tmp/nonexistent-allowlist")
+		w.Lock()
+		w.allowlist = make(map[string]map[string]struct{})
+		for _, e := range entries {
+			if w.allowlist[e[0]] == nil {
+				w.allowlist[e[0]] = make(map[string]struct{})
+			}
+			w.allowlist[e[0]][e[1]] = struct{}{}
+		}
+		w.Unlock()
+		return w
+	}
+
 	type args struct {
-		podNamespace     string
-		podCfg           *slov1alpha1.CPUBurstConfig
-		nodeCfg          *slov1alpha1.CPUBurstConfig
-		allowlistWatcher *AllowlistWatcher
+		podNamespace          string
+		podServiceAccountName string
+		podCfg                *slov1alpha1.CPUBurstConfig
+		nodeCfg               *slov1alpha1.CPUBurstConfig
+		allowlistWatcher      *AllowlistWatcher
 	}
 
 	tests := []struct {
@@ -512,6 +530,32 @@ func Test_genPodBurstConfig(t *testing.T) {
 				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
 			},
 		},
+		{
+			// When the allowlist is enabled and the pod's serviceAccountName is in
+			// it, the pod's own burst annotation is applied (merged over the node config).
+			name: "use-pod-config-when-pod-in-allowlist",
+			args: args{
+				podNamespace:          "default",
+				podServiceAccountName: "web-app",
+				podCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:          slov1alpha1.CPUBurstOnly,
+					CPUBurstPercent: ptr.To[int64](500),
+				},
+				nodeCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:                     slov1alpha1.CPUBurstAuto,
+					CPUBurstPercent:            ptr.To[int64](1000),
+					CFSQuotaBurstPercent:       ptr.To[int64](300),
+					CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+				},
+				allowlistWatcher: allowlistWith([2]string{"default", "web-app"}),
+			},
+			want: &slov1alpha1.CPUBurstConfig{
+				Policy:                     slov1alpha1.CPUBurstOnly,
+				CPUBurstPercent:            ptr.To[int64](500),
+				CFSQuotaBurstPercent:       ptr.To[int64](300),
+				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -521,6 +565,9 @@ func Test_genPodBurstConfig(t *testing.T) {
 					Name:        "test-pod",
 					Namespace:   tt.args.podNamespace,
 					Annotations: make(map[string]string),
+				},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: tt.args.podServiceAccountName,
 				},
 			}
 			if tt.args.podCfg != nil {

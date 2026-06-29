@@ -33,68 +33,68 @@ func TestIsPodAllowed(t *testing.T) {
 	w.Lock()
 	w.allowlist = map[string]map[string]struct{}{
 		"production": {
-			"web-app-":    {},
-			"api-server-": {},
+			"web-app":    {},
+			"api-server": {},
 		},
 		"staging": {
-			"test-runner-": {},
+			"test-runner": {},
 		},
 	}
 	w.Unlock()
 
 	tests := []struct {
-		name         string
-		namespace    string
-		generateName string
-		expected     bool
+		name               string
+		namespace          string
+		serviceAccountName string
+		expected           bool
 	}{
 		{
-			name:         "matching entry",
-			namespace:    "production",
-			generateName: "web-app-",
-			expected:     true,
+			name:               "matching entry",
+			namespace:          "production",
+			serviceAccountName: "web-app",
+			expected:           true,
 		},
 		{
-			name:         "matching entry in different namespace",
-			namespace:    "staging",
-			generateName: "test-runner-",
-			expected:     true,
+			name:               "matching entry in different namespace",
+			namespace:          "staging",
+			serviceAccountName: "test-runner",
+			expected:           true,
 		},
 		{
-			name:         "namespace matches but generateName doesn't",
-			namespace:    "production",
-			generateName: "unknown-app-",
-			expected:     false,
+			name:               "namespace matches but serviceAccountName doesn't",
+			namespace:          "production",
+			serviceAccountName: "unknown-app",
+			expected:           false,
 		},
 		{
-			name:         "generateName matches but namespace doesn't",
-			namespace:    "default",
-			generateName: "web-app-",
-			expected:     false,
+			name:               "serviceAccountName matches but namespace doesn't",
+			namespace:          "default",
+			serviceAccountName: "web-app",
+			expected:           false,
 		},
 		{
-			name:         "neither matches",
-			namespace:    "default",
-			generateName: "unknown-",
-			expected:     false,
+			name:               "neither matches",
+			namespace:          "default",
+			serviceAccountName: "unknown",
+			expected:           false,
 		},
 		{
-			name:         "empty namespace",
-			namespace:    "",
-			generateName: "web-app-",
-			expected:     false,
+			name:               "empty namespace",
+			namespace:          "",
+			serviceAccountName: "web-app",
+			expected:           false,
 		},
 		{
-			name:         "empty generateName",
-			namespace:    "production",
-			generateName: "",
-			expected:     false,
+			name:               "empty serviceAccountName",
+			namespace:          "production",
+			serviceAccountName: "",
+			expected:           false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := w.IsPodAllowed(tt.namespace, tt.generateName)
+			result := w.IsPodAllowed(tt.namespace, tt.serviceAccountName)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -103,8 +103,8 @@ func TestIsPodAllowed(t *testing.T) {
 func TestIsPodAllowed_EmptyAllowlist(t *testing.T) {
 	w := NewAllowlistWatcher("/tmp/nonexistent-for-test")
 	// allowlist is empty by default - no pods should be allowed
-	assert.False(t, w.IsPodAllowed("production", "web-app-"))
-	assert.False(t, w.IsPodAllowed("default", "anything-"))
+	assert.False(t, w.IsPodAllowed("production", "web-app"))
+	assert.False(t, w.IsPodAllowed("default", "anything"))
 }
 
 func TestLoadAllowlist_FileReload(t *testing.T) {
@@ -114,7 +114,7 @@ func TestLoadAllowlist_FileReload(t *testing.T) {
 	// Write initial allowlist
 	initialContent := `podAllowlist:
   - namespace: "production"
-    generateName: "web-app-"
+    serviceAccountName: "web-app"
 `
 	err := os.WriteFile(configPath, []byte(initialContent), 0644)
 	assert.NoError(t, err)
@@ -123,15 +123,15 @@ func TestLoadAllowlist_FileReload(t *testing.T) {
 	w.loadAllowlist()
 
 	// Verify initial entries
-	assert.True(t, w.IsPodAllowed("production", "web-app-"))
-	assert.False(t, w.IsPodAllowed("staging", "api-server-"))
+	assert.True(t, w.IsPodAllowed("production", "web-app"))
+	assert.False(t, w.IsPodAllowed("staging", "api-server"))
 
 	// Overwrite with new entries
 	updatedContent := `podAllowlist:
   - namespace: "staging"
-    generateName: "api-server-"
+    serviceAccountName: "api-server"
   - namespace: "production"
-    generateName: "worker-"
+    serviceAccountName: "worker"
 `
 	err = os.WriteFile(configPath, []byte(updatedContent), 0644)
 	assert.NoError(t, err)
@@ -139,10 +139,10 @@ func TestLoadAllowlist_FileReload(t *testing.T) {
 	w.loadAllowlist()
 
 	// Old entry should be gone
-	assert.False(t, w.IsPodAllowed("production", "web-app-"))
+	assert.False(t, w.IsPodAllowed("production", "web-app"))
 	// New entries should be present
-	assert.True(t, w.IsPodAllowed("staging", "api-server-"))
-	assert.True(t, w.IsPodAllowed("production", "worker-"))
+	assert.True(t, w.IsPodAllowed("staging", "api-server"))
+	assert.True(t, w.IsPodAllowed("production", "worker"))
 }
 
 func TestLoadAllowlist_InvalidYAML(t *testing.T) {
@@ -152,7 +152,7 @@ func TestLoadAllowlist_InvalidYAML(t *testing.T) {
 	// Write valid initial allowlist
 	initialContent := `podAllowlist:
   - namespace: "production"
-    generateName: "web-app-"
+    serviceAccountName: "web-app"
 `
 	err := os.WriteFile(configPath, []byte(initialContent), 0644)
 	assert.NoError(t, err)
@@ -161,12 +161,12 @@ func TestLoadAllowlist_InvalidYAML(t *testing.T) {
 	w.loadAllowlist()
 
 	// Verify initial entries
-	assert.True(t, w.IsPodAllowed("production", "web-app-"))
+	assert.True(t, w.IsPodAllowed("production", "web-app"))
 
 	// Write invalid YAML
 	invalidContent := `podAllowlist:
   - namespace: "production"
-    generateName: "web-app-"
+    serviceAccountName: "web-app"
   invalid_yaml: [[[
 `
 	err = os.WriteFile(configPath, []byte(invalidContent), 0644)
@@ -175,7 +175,7 @@ func TestLoadAllowlist_InvalidYAML(t *testing.T) {
 	w.loadAllowlist()
 
 	// Previous allowlist should be preserved on invalid YAML
-	assert.True(t, w.IsPodAllowed("production", "web-app-"),
+	assert.True(t, w.IsPodAllowed("production", "web-app"),
 		"previous allowlist should be preserved when YAML is invalid")
 }
 
@@ -184,7 +184,7 @@ func TestLoadAllowlist_MissingFile(t *testing.T) {
 
 	// Loading from a missing file should not crash and should keep an empty allowlist
 	w.loadAllowlist()
-	assert.False(t, w.IsPodAllowed("production", "web-app-"))
+	assert.False(t, w.IsPodAllowed("production", "web-app"))
 }
 
 func TestLoadAllowlist_EmptyAllowlist(t *testing.T) {
@@ -200,7 +200,7 @@ func TestLoadAllowlist_EmptyAllowlist(t *testing.T) {
 	w := NewAllowlistWatcher(configPath)
 	w.loadAllowlist()
 
-	assert.False(t, w.IsPodAllowed("production", "web-app-"))
+	assert.False(t, w.IsPodAllowed("production", "web-app"))
 	assert.Equal(t, 0, w.entryCount())
 }
 
@@ -208,16 +208,16 @@ func TestLoadAllowlist_SkipsEmptyEntries(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "cpu-burst-allowlist.yaml")
 
-	// Write allowlist with entries that have empty namespace or generateName
+	// Write allowlist with entries that have empty namespace or serviceAccountName
 	content := `podAllowlist:
   - namespace: "production"
-    generateName: "web-app-"
+    serviceAccountName: "web-app"
   - namespace: ""
-    generateName: "empty-ns-"
-  - namespace: "empty-gn"
-    generateName: ""
+    serviceAccountName: "empty-ns"
+  - namespace: "empty-sa"
+    serviceAccountName: ""
   - namespace: "staging"
-    generateName: "api-"
+    serviceAccountName: "api"
 `
 	err := os.WriteFile(configPath, []byte(content), 0644)
 	assert.NoError(t, err)
@@ -226,9 +226,9 @@ func TestLoadAllowlist_SkipsEmptyEntries(t *testing.T) {
 	w.loadAllowlist()
 
 	// Valid entries should be present
-	assert.True(t, w.IsPodAllowed("production", "web-app-"))
-	assert.True(t, w.IsPodAllowed("staging", "api-"))
-	// Entries with empty namespace or generateName should be skipped
+	assert.True(t, w.IsPodAllowed("production", "web-app"))
+	assert.True(t, w.IsPodAllowed("staging", "api"))
+	// Entries with empty namespace or serviceAccountName should be skipped
 	assert.Equal(t, 2, w.entryCount())
 }
 
@@ -239,7 +239,7 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 	// Write the initial allow list
 	writeConfigMapVersion(t, tmpDir, 1, `podAllowlist:
   - namespace: "production"
-    generateName: "web-app-"
+    serviceAccountName: "web-app"
 `)
 
 	w := NewAllowlistWatcher(configPath)
@@ -252,24 +252,25 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 	// Give the watcher a moment to load the initial file
 	time.Sleep(200 * time.Millisecond)
 
-	assert.True(t, w.IsPodAllowed("production", "web-app-"))
+	assert.True(t, w.IsPodAllowed("production", "web-app"))
 
 	// Simulate a kubelet atomic ConfigMap update: new timestamped dir + ..data swap.
 	updateConfigMapVersion(t, tmpDir, 2, `podAllowlist:
   - namespace: "staging"
-    generateName: "api-server-"
+    serviceAccountName: "api-server"
 `)
 
 	// Wait for the debounce timer + reload
 	time.Sleep(500 * time.Millisecond)
 
 	// Old entry should be gone, new entry should be present
-	assert.False(t, w.IsPodAllowed("production", "web-app-"))
-	assert.True(t, w.IsPodAllowed("staging", "api-server-"))
+	assert.False(t, w.IsPodAllowed("production", "web-app"))
+	assert.True(t, w.IsPodAllowed("staging", "api-server"))
 }
 
 // writeConfigMapVersion sets up the initial ConfigMap symlink layout in dir,
 // mirroring how the kubelet mounts a ConfigMap volume:
+//
 //	<dir>/cpu-burst-allowlist.yaml -> ..data/cpu-burst-allowlist.yaml   (stable per-key symlink)
 //	<dir>/..data                  -> ..vN/                             (the atomic switch)
 //	<dir>/..vN/cpu-burst-allowlist.yaml                              (the real file)

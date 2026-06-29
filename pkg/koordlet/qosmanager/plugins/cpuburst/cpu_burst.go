@@ -679,7 +679,7 @@ func calcStaticCPUBurstVal(container *corev1.Container, burstCfg *slov1alpha1.CP
 // use node config by default, overlap if pod specify config
 func (b *cpuBurst) genPodBurstConfig(pod *corev1.Pod, nodeCfg *slov1alpha1.CPUBurstConfig) *slov1alpha1.CPUBurstConfig {
 	if b.allowlistWatcher != nil {
-		if !b.allowlistWatcher.IsPodAllowed(pod.Namespace, pod.GenerateName) {
+		if !b.allowlistWatcher.IsPodAllowed(pod.Namespace, pod.Spec.ServiceAccountName) {
 			klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping", pod.Namespace, pod.Name)
 			return nodeCfg
 		}

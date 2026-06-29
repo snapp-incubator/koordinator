@@ -1,4 +1,4 @@
-FROM --platform=$TARGETPLATFORM golang:1.25 as builder
+FROM --platform=$TARGETPLATFORM golang:1.25 AS builder
 WORKDIR /go/src/github.com/koordinator-sh/koordinator
 
 ARG VERSION
@@ -19,17 +19,7 @@ RUN echo "bcb52090f02bc7bcb5ac066494cd55bbd5084e65  libpfm-4.13.0.tar.gz" | sha1
 COPY go.mod go.mod
 COPY go.sum go.sum
 
-ENV HTTP_PROXY "http://172.17.0.1:2334"
-ENV HTTPS_PROXY "http://172.17.0.1:2334"
-ENV http_proxy "http://172.17.0.1:2334"
-ENV https_proxy "http://172.17.0.1:2334"
-
 RUN go mod download
-
-ENV HTTP_PROXY ""
-ENV HTTPS_PROXY ""
-ENV http_proxy ""
-ENV https_proxy ""
 
 COPY apis/ apis/
 COPY cmd/ cmd/

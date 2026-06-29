@@ -30,8 +30,8 @@ import (
 
 // PodAllowlistEntry represents one entry in the allowlist ConfigMap.
 type PodAllowlistEntry struct {
-	Namespace    string `yaml:"namespace"`
-	GenerateName string `yaml:"generateName"`
+	Namespace          string `yaml:"namespace"`
+	ServiceAccountName string `yaml:"serviceAccountName"`
 }
 
 // podAllowlistConfig represents the parsed ConfigMap data.
@@ -41,11 +41,11 @@ type podAllowlistConfig struct {
 
 // AllowlistWatcher watches a mounted ConfigMap file for the CPU burst allowlist.
 // It uses fsnotify to detect changes and provides a thread-safe lookup method.
-// The internal storage is a map of namespace -> set of generateNames for O(1) lookup.
+// The internal storage is a map of namespace -> set of serviceAccountNames for O(1) lookup.
 type AllowlistWatcher struct {
 	sync.RWMutex
 	configPath string
-	// allowlist stores namespace -> set of generateNames for O(1) lookup.
+	// allowlist stores namespace -> set of serviceAccountNames for O(1) lookup.
 	allowlist map[string]map[string]struct{}
 	watcher   *fsnotify.Watcher
 }
@@ -159,14 +159,14 @@ func (w *AllowlistWatcher) loadAllowlist() {
 
 	newAllowlist := make(map[string]map[string]struct{})
 	for _, entry := range config.PodAllowlist {
-		if entry.Namespace == "" || entry.GenerateName == "" {
-			klog.V(5).Infof("skipping cpuBurst allowlist entry with empty namespace or generateName: %+v", entry)
+		if entry.Namespace == "" || entry.ServiceAccountName == "" {
+			klog.V(5).Infof("skipping cpuBurst allowlist entry with empty namespace or serviceAccountName: %+v", entry)
 			continue
 		}
 		if newAllowlist[entry.Namespace] == nil {
 			newAllowlist[entry.Namespace] = make(map[string]struct{})
 		}
-		newAllowlist[entry.Namespace][entry.GenerateName] = struct{}{}
+		newAllowlist[entry.Namespace][entry.ServiceAccountName] = struct{}{}
 	}
 
 	w.Lock()
@@ -177,8 +177,8 @@ func (w *AllowlistWatcher) loadAllowlist() {
 		w.configPath, w.entryCount(), len(newAllowlist))
 }
 
-// IsPodAllowed checks if a pod with the given namespace and generateName is in the allowlist.
-func (w *AllowlistWatcher) IsPodAllowed(namespace, generateName string) bool {
+// IsPodAllowed checks if a pod with the given namespace and serviceAccountName is in the allowlist.
+func (w *AllowlistWatcher) IsPodAllowed(namespace, serviceAccountName string) bool {
 	w.RLock()
 	defer w.RUnlock()
 
@@ -186,7 +186,7 @@ func (w *AllowlistWatcher) IsPodAllowed(namespace, generateName string) bool {
 	if !ok {
 		return false
 	}
-	_, found := nsEntries[generateName]
+	_, found := nsEntries[serviceAccountName]
 	return found
 }
 
