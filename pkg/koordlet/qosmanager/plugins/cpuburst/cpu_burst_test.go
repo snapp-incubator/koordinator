@@ -398,8 +398,8 @@ func TestCPUBurst_getNodeStateForBurst(t *testing.T) {
 			}
 			mockMetricCache.EXPECT().Get(metriccache.NodeCPUInfoKey).Return(tt.fields.nodeCPUInfo, true).AnyTimes()
 
-			//fakeRecorder := &FakeRecorder{}
-			//client := clientsetfake.NewSimpleClientset()
+			// fakeRecorder := &FakeRecorder{}
+			// client := clientsetfake.NewSimpleClientset()
 			opt := &framework.Options{
 				StatesInformer: mockstatesinformer,
 				MetricCache:    mockMetricCache,
@@ -418,9 +418,10 @@ func TestCPUBurst_getNodeStateForBurst(t *testing.T) {
 func Test_genPodBurstConfig(t *testing.T) {
 
 	type args struct {
-		podNamespace string
-		podCfg       *slov1alpha1.CPUBurstConfig
-		nodeCfg      *slov1alpha1.CPUBurstConfig
+		podNamespace     string
+		podCfg           *slov1alpha1.CPUBurstConfig
+		nodeCfg          *slov1alpha1.CPUBurstConfig
+		allowlistWatcher *AllowlistWatcher
 	}
 
 	tests := []struct {
@@ -485,6 +486,32 @@ func Test_genPodBurstConfig(t *testing.T) {
 				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
 			},
 		},
+		{
+			// When the allowlist is enabled and the pod is not in it, the pod's own
+			// burst annotation is ignored and the node default config is returned.
+			name: "return-node-config-when-pod-not-in-allowlist",
+			args: args{
+				podNamespace: "default",
+				podCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:          slov1alpha1.CPUBurstOnly,
+					CPUBurstPercent: ptr.To[int64](500),
+				},
+				nodeCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:                     slov1alpha1.CPUBurstAuto,
+					CPUBurstPercent:            ptr.To[int64](1000),
+					CFSQuotaBurstPercent:       ptr.To[int64](300),
+					CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+				},
+				// empty allowlist -> the pod is not allowed
+				allowlistWatcher: NewAllowlistWatcher("/tmp/nonexistent-allowlist"),
+			},
+			want: &slov1alpha1.CPUBurstConfig{
+				Policy:                     slov1alpha1.CPUBurstAuto,
+				CPUBurstPercent:            ptr.To[int64](1000),
+				CFSQuotaBurstPercent:       ptr.To[int64](300),
+				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -500,7 +527,8 @@ func Test_genPodBurstConfig(t *testing.T) {
 				annoStr, _ := json.Marshal(tt.args.podCfg)
 				pod.Annotations[slov1alpha1.AnnotationPodCPUBurst] = string(annoStr)
 			}
-			if got := genPodBurstConfig(pod, tt.args.nodeCfg); !reflect.DeepEqual(got, tt.want) {
+			b := &cpuBurst{allowlistWatcher: tt.args.allowlistWatcher}
+			if got := b.genPodBurstConfig(pod, tt.args.nodeCfg); !reflect.DeepEqual(got, tt.want) {
 				gotStr, _ := json.Marshal(got)
 				wantStr, _ := json.Marshal(tt.want)
 				t.Errorf("genPodBurstConfig() =\n%v\nwant =\n%v", string(gotStr), string(wantStr))
@@ -1788,7 +1816,8 @@ func Test_genPodBurstConfigWithPlugin(t *testing.T) {
 					slov1alpha1.AnnotationPodCPUBurst: string(podCPUBurstCfgStr),
 				}
 			}
-			gotCfg := genPodBurstConfig(tt.args.pod, &tt.args.nodeCfg)
+			b := &cpuBurst{}
+			gotCfg := b.genPodBurstConfig(tt.args.pod, &tt.args.nodeCfg)
 			assert.Equal(t, tt.want, gotCfg)
 		})
 	}

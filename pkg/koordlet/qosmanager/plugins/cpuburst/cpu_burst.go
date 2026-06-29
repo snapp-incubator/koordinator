@@ -248,18 +248,8 @@ func (b *cpuBurst) start() {
 			continue
 		}
 
-		// If the CPU burst allowlist is enabled, restrict bursting to the pods
-		// listed in the allowlist (by namespace + generateName).
-		if b.allowlistWatcher != nil {
-			if !b.allowlistWatcher.IsPodAllowed(podMeta.Pod.Namespace, podMeta.Pod.GenerateName) {
-				klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping",
-					podMeta.Pod.Namespace, podMeta.Pod.Name)
-				continue
-			}
-		}
-
 		// merge burst config from pod and node
-		cpuBurstCfg := genPodBurstConfig(podMeta.Pod, &b.nodeCPUBurstStrategy.CPUBurstConfig)
+		cpuBurstCfg := b.genPodBurstConfig(podMeta.Pod, &b.nodeCPUBurstStrategy.CPUBurstConfig)
 		if cpuBurstCfg == nil {
 			klog.Warningf("pod %v/%v burst config illegal, burst config %v",
 				podMeta.Pod.Namespace, podMeta.Pod.Name, cpuBurstCfg)
@@ -687,7 +677,14 @@ func calcStaticCPUBurstVal(container *corev1.Container, burstCfg *slov1alpha1.CP
 }
 
 // use node config by default, overlap if pod specify config
-func genPodBurstConfig(pod *corev1.Pod, nodeCfg *slov1alpha1.CPUBurstConfig) *slov1alpha1.CPUBurstConfig {
+func (b *cpuBurst) genPodBurstConfig(pod *corev1.Pod, nodeCfg *slov1alpha1.CPUBurstConfig) *slov1alpha1.CPUBurstConfig {
+	if b.allowlistWatcher != nil {
+		if !b.allowlistWatcher.IsPodAllowed(pod.Namespace, pod.GenerateName) {
+			klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping", pod.Namespace, pod.Name)
+			return nodeCfg
+		}
+	}
+
 	podCPUBurstCfg, err := slov1alpha1.GetPodCPUBurstConfig(pod)
 	if err != nil {
 		klog.Infof("parse pod %s/%s cpu burst config failed, reason %v", pod.Namespace, pod.Name, err)

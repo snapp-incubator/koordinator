@@ -270,9 +270,9 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 
 // writeConfigMapVersion sets up the initial ConfigMap symlink layout in dir,
 // mirroring how the kubelet mounts a ConfigMap volume:
-//   <dir>/cpu-burst-allowlist.yaml -> ..data/cpu-burst-allowlist.yaml   (stable per-key symlink)
-//   <dir>/..data                  -> ..vN/                             (the atomic switch)
-//   <dir>/..vN/cpu-burst-allowlist.yaml                              (the real file)
+//	<dir>/cpu-burst-allowlist.yaml -> ..data/cpu-burst-allowlist.yaml   (stable per-key symlink)
+//	<dir>/..data                  -> ..vN/                             (the atomic switch)
+//	<dir>/..vN/cpu-burst-allowlist.yaml                              (the real file)
 func writeConfigMapVersion(t *testing.T, dir string, version int, content string) {
 	t.Helper()
 	revDir := filepath.Join(dir, fmt.Sprintf("..v%d", version))
