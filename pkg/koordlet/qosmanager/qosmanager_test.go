@@ -25,7 +25,6 @@ import (
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 
-	clientsetalpha1 "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned"
 	mock_metriccache "github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache/mockmetriccache"
 	maframework "github.com/koordinator-sh/koordinator/pkg/koordlet/metricsadvisor/framework"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/qosmanager/framework"
@@ -39,12 +38,11 @@ func TestNewResManager(t *testing.T) {
 
 		scheme := apiruntime.NewScheme()
 		kubeClient := &kubernetes.Clientset{}
-		crdClient := &clientsetalpha1.Clientset{}
 		nodeName := "test-node"
 		statesInformer := mock_statesinformer.NewMockStatesInformer(ctrl)
 		metricCache := mock_metriccache.NewMockMetricCache(ctrl)
 
-		r := NewQOSManager(framework.NewDefaultConfig(), scheme, kubeClient, crdClient, nodeName, statesInformer, metricCache, maframework.NewDefaultConfig(), policyv1.SchemeGroupVersion.String())
+		r := NewQOSManager(framework.NewDefaultConfig(), scheme, kubeClient, nil, nodeName, statesInformer, metricCache, maframework.NewDefaultConfig(), policyv1.SchemeGroupVersion.String(), "", false)
 		assert.NotNil(t, r)
 	})
 }

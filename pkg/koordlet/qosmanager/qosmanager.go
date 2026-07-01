@@ -25,11 +25,11 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	clientcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 
-	koordclientset "github.com/koordinator-sh/koordinator/pkg/client/clientset/versioned"
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
 	_ "github.com/koordinator-sh/koordinator/pkg/koordlet/metrics"
 	ma "github.com/koordinator-sh/koordinator/pkg/koordlet/metricsadvisor/framework"
@@ -49,8 +49,19 @@ type qosManager struct {
 	context *framework.Context
 }
 
-func NewQOSManager(cfg *framework.Config, schema *apiruntime.Scheme, kubeClient clientset.Interface, crdClient *koordclientset.Clientset, nodeName string,
-	statesInformer statesinformer.StatesInformer, metricCache metriccache.MetricCache, metricAdvisorConfig *ma.Config, evictVersion string) QOSManager {
+func NewQOSManager(
+	cfg *framework.Config,
+	schema *apiruntime.Scheme,
+	kubeClient clientset.Interface,
+	kubeRestConf *rest.Config,
+	nodeName string,
+	statesInformer statesinformer.StatesInformer,
+	metricCache metriccache.MetricCache,
+	metricAdvisorConfig *ma.Config,
+	evictVersion string,
+	cpuBurstAllowlistPath string,
+	cpuBurstAllowlistEnabled bool,
+) QOSManager {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartRecordingToSink(&clientcorev1.EventSinkImpl{Interface: kubeClient.CoreV1().Events("")})
 	recorder := eventBroadcaster.NewRecorder(schema, corev1.EventSource{Component: "koordlet-qosManager", Host: nodeName})
@@ -58,14 +69,17 @@ func NewQOSManager(cfg *framework.Config, schema *apiruntime.Scheme, kubeClient 
 	evictor := qosmanagerUtil.NewEvictor(kubeClient, recorder, evictVersion)
 
 	opt := &framework.Options{
-		CgroupReader:        cgroupReader,
-		StatesInformer:      statesInformer,
-		MetricCache:         metricCache,
-		EventRecorder:       recorder,
-		KubeClient:          kubeClient,
-		EvictVersion:        evictVersion,
-		Config:              cfg,
-		MetricAdvisorConfig: metricAdvisorConfig,
+		CgroupReader:             cgroupReader,
+		StatesInformer:           statesInformer,
+		MetricCache:              metricCache,
+		EventRecorder:            recorder,
+		KubeClient:               kubeClient,
+		KubeRestConf:             kubeRestConf,
+		EvictVersion:             evictVersion,
+		Config:                   cfg,
+		MetricAdvisorConfig:      metricAdvisorConfig,
+		CPUBurstAllowlistPath:    cpuBurstAllowlistPath,
+		CPUBurstAllowlistEnabled: cpuBurstAllowlistEnabled,
 	}
 
 	ctx := &framework.Context{

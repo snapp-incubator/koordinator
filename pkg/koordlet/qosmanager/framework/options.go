@@ -18,6 +18,7 @@ package framework
 
 import (
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
@@ -27,12 +28,15 @@ import (
 )
 
 type Options struct {
-	CgroupReader        resourceexecutor.CgroupReader
-	StatesInformer      statesinformer.StatesInformer
-	MetricCache         metriccache.MetricCache
-	EventRecorder       record.EventRecorder
-	KubeClient          clientset.Interface
-	EvictVersion        string
-	Config              *Config
-	MetricAdvisorConfig *ma.Config
+	CgroupReader             resourceexecutor.CgroupReader
+	StatesInformer           statesinformer.StatesInformer
+	MetricCache              metriccache.MetricCache
+	EventRecorder            record.EventRecorder
+	KubeClient               clientset.Interface
+	KubeRestConf             *rest.Config
+	EvictVersion             string
+	Config                   *Config
+	MetricAdvisorConfig      *ma.Config
+	CPUBurstAllowlistPath    string
+	CPUBurstAllowlistEnabled bool
 }

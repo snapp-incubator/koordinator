@@ -67,3 +67,16 @@ subjects:
   - kind: ServiceAccount
     name: koordlet
     namespace: system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: koordlet-cluster-view-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: koordlet
+    namespace: system

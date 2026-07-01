@@ -26,6 +26,7 @@ spec:
             - -runtime-hooks-network=unix
             - -runtime-hooks-addr=/host-var-run-koordlet/koordlet.sock
             - -runtime-hooks-host-endpoint=/var/run/koordlet//koordlet.sock
+            - -cpu-burst-allowlist-path=/etc/koordlet/cpu-burst-allowlist.yaml
             - --logtostderr=true
             - --v=4
           command:
@@ -98,6 +99,9 @@ spec:
               name: xpu-device-infos
             - mountPath: /usr/local/vgpu/containers
               name: host-vgpu-containers
+            - mountPath: /etc/koordlet/
+              name: cpu-burst-allowlist
+              readOnly: true
       hostNetwork: true
       hostPID: true
       restartPolicy: Always
@@ -169,3 +173,7 @@ spec:
             path: /usr/local/vgpu/containers
             type: DirectoryOrCreate
           name: host-vgpu-containers
+        - configMap:
+            name: cpu-burst-allowlist
+            optional: true
+          name: cpu-burst-allowlist

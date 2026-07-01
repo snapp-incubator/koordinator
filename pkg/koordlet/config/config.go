@@ -40,42 +40,49 @@ import (
 const (
 	DefaultKoordletConfigMapNamespace = "koordinator-system"
 	DefaultKoordletConfigMapName      = "koordlet-config"
+	DefaultCPUBurstAllowlistPath      = "/etc/koordlet/cpu-burst-allowlist.yaml"
 
 	CMKeyQoSPluginExtraConfigs = "qos-plugin-extra-configs"
 )
 
 type Configuration struct {
-	ConfigMapName      string
-	ConfigMapNamesapce string
-	KubeRestConf       *rest.Config
-	StatesInformerConf *statesinformerimpl.Config
-	CollectorConf      *maframework.Config
-	MetricCacheConf    *metriccache.Config
-	QOSManagerConf     *qmframework.Config
-	RuntimeHookConf    *runtimehooks.Config
-	AuditConf          *audit.Config
-	PredictionConf     *prediction.Config
+	ConfigMapName            string
+	ConfigMapNamesapce       string
+	CPUBurstAllowlistPath    string
+	CPUBurstAllowlistEnabled bool
+	KubeRestConf             *rest.Config
+	StatesInformerConf       *statesinformerimpl.Config
+	CollectorConf            *maframework.Config
+	MetricCacheConf          *metriccache.Config
+	QOSManagerConf           *qmframework.Config
+	RuntimeHookConf          *runtimehooks.Config
+	AuditConf                *audit.Config
+	PredictionConf           *prediction.Config
 
 	FeatureGates map[string]bool
 }
 
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		ConfigMapName:      DefaultKoordletConfigMapName,
-		ConfigMapNamesapce: DefaultKoordletConfigMapNamespace,
-		StatesInformerConf: statesinformerimpl.NewDefaultConfig(),
-		CollectorConf:      maframework.NewDefaultConfig(),
-		MetricCacheConf:    metriccache.NewDefaultConfig(),
-		QOSManagerConf:     qmframework.NewDefaultConfig(),
-		RuntimeHookConf:    runtimehooks.NewDefaultConfig(),
-		AuditConf:          audit.NewDefaultConfig(),
-		PredictionConf:     prediction.NewDefaultConfig(),
+		ConfigMapName:            DefaultKoordletConfigMapName,
+		ConfigMapNamesapce:       DefaultKoordletConfigMapNamespace,
+		CPUBurstAllowlistPath:    DefaultCPUBurstAllowlistPath,
+		CPUBurstAllowlistEnabled: false,
+		StatesInformerConf:       statesinformerimpl.NewDefaultConfig(),
+		CollectorConf:            maframework.NewDefaultConfig(),
+		MetricCacheConf:          metriccache.NewDefaultConfig(),
+		QOSManagerConf:           qmframework.NewDefaultConfig(),
+		RuntimeHookConf:          runtimehooks.NewDefaultConfig(),
+		AuditConf:                audit.NewDefaultConfig(),
+		PredictionConf:           prediction.NewDefaultConfig(),
 	}
 }
 
 func (c *Configuration) InitFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.ConfigMapName, "configmap-name", DefaultKoordletConfigMapName, "determines the name the koordlet configmap uses.")
 	fs.StringVar(&c.ConfigMapNamesapce, "configmap-namespace", DefaultKoordletConfigMapNamespace, "determines the namespace of configmap uses.")
+	fs.StringVar(&c.CPUBurstAllowlistPath, "cpu-burst-allowlist-path", DefaultCPUBurstAllowlistPath, "The path to the CPU burst allowlist config file (mounted from a ConfigMap). Only takes effect when cpu-burst-allowlist-enabled is set.")
+	fs.BoolVar(&c.CPUBurstAllowlistEnabled, "cpu-burst-allowlist-enabled", false, "Whether to enable the CPU burst allowlist. When enabled, only pods listed in the allowlist ConfigMap receive CPU burst; otherwise bursting is unrestricted (default).")
 	system.Conf.InitFlags(fs)
 	c.StatesInformerConf.InitFlags(fs)
 	c.CollectorConf.InitFlags(fs)

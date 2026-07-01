@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cpu-burst-allowlist
+  namespace: system
+data:
+  cpu-burst-allowlist.yaml: |
+    # A pod carrying any koordinator.sh/ annotation (e.g. koordinator.sh/cpuBurst)
+    # is allowed to use per-pod CPU burst only when its namespace and the name of
+    # its original owner (the top of its ownerReference chain -- the Deployment,
+    # StatefulSet, DaemonSet, Argo Rollout, ... that controls it) match an entry.
+    # A standalone pod (no controller owner) is matched by its own name.
+    podAllowlist: []
+    # Example:
+    # podAllowlist:
+    #   - namespace: "production"
+    #     ownerName: "web-deployment"
+    #   - namespace: "production"
+    #     ownerName: "cache-statefulset"
