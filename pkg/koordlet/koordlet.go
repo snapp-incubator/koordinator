@@ -116,7 +116,7 @@ func NewDaemon(config *config.Configuration) (Daemon, error) {
 		return nil, err
 	}
 
-	qosManager := qosmanager.NewQOSManager(config.QOSManagerConf, scheme, kubeClient, nodeName, statesInformer, metricCache, config.CollectorConf, evictVersion, config.CPUBurstAllowlistPath, config.CPUBurstAllowlistEnabled)
+	qosManager := qosmanager.NewQOSManager(config.QOSManagerConf, scheme, kubeClient, config.KubeRestConf, nodeName, statesInformer, metricCache, config.CollectorConf, evictVersion, config.CPUBurstAllowlistPath, config.CPUBurstAllowlistEnabled)
 
 	runtimeHook, err := runtimehooks.NewRuntimeHook(statesInformer, config.RuntimeHookConf, scheme, kubeClient, nodeName)
 	if err != nil {

@@ -43,58 +43,58 @@ func TestIsPodAllowed(t *testing.T) {
 	w.Unlock()
 
 	tests := []struct {
-		name               string
-		namespace          string
-		serviceAccountName string
-		expected           bool
+		name      string
+		namespace string
+		ownerName string
+		expected  bool
 	}{
 		{
-			name:               "matching entry",
-			namespace:          "production",
-			serviceAccountName: "web-app",
-			expected:           true,
+			name:      "matching entry",
+			namespace: "production",
+			ownerName: "web-app",
+			expected:  true,
 		},
 		{
-			name:               "matching entry in different namespace",
-			namespace:          "staging",
-			serviceAccountName: "test-runner",
-			expected:           true,
+			name:      "matching entry in different namespace",
+			namespace: "staging",
+			ownerName: "test-runner",
+			expected:  true,
 		},
 		{
-			name:               "namespace matches but serviceAccountName doesn't",
-			namespace:          "production",
-			serviceAccountName: "unknown-app",
-			expected:           false,
+			name:      "namespace matches but ownerName doesn't",
+			namespace: "production",
+			ownerName: "unknown-app",
+			expected:  false,
 		},
 		{
-			name:               "serviceAccountName matches but namespace doesn't",
-			namespace:          "default",
-			serviceAccountName: "web-app",
-			expected:           false,
+			name:      "ownerName matches but namespace doesn't",
+			namespace: "default",
+			ownerName: "web-app",
+			expected:  false,
 		},
 		{
-			name:               "neither matches",
-			namespace:          "default",
-			serviceAccountName: "unknown",
-			expected:           false,
+			name:      "neither matches",
+			namespace: "default",
+			ownerName: "unknown",
+			expected:  false,
 		},
 		{
-			name:               "empty namespace",
-			namespace:          "",
-			serviceAccountName: "web-app",
-			expected:           false,
+			name:      "empty namespace",
+			namespace: "",
+			ownerName: "web-app",
+			expected:  false,
 		},
 		{
-			name:               "empty serviceAccountName",
-			namespace:          "production",
-			serviceAccountName: "",
-			expected:           false,
+			name:      "empty ownerName",
+			namespace: "production",
+			ownerName: "",
+			expected:  false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := w.IsPodAllowed(tt.namespace, tt.serviceAccountName)
+			result := w.IsPodAllowed(tt.namespace, tt.ownerName)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -114,7 +114,7 @@ func TestLoadAllowlist_FileReload(t *testing.T) {
 	// Write initial allowlist
 	initialContent := `podAllowlist:
   - namespace: "production"
-    serviceAccountName: "web-app"
+    ownerName: "web-app"
 `
 	err := os.WriteFile(configPath, []byte(initialContent), 0644)
 	assert.NoError(t, err)
@@ -129,9 +129,9 @@ func TestLoadAllowlist_FileReload(t *testing.T) {
 	// Overwrite with new entries
 	updatedContent := `podAllowlist:
   - namespace: "staging"
-    serviceAccountName: "api-server"
+    ownerName: "api-server"
   - namespace: "production"
-    serviceAccountName: "worker"
+    ownerName: "worker"
 `
 	err = os.WriteFile(configPath, []byte(updatedContent), 0644)
 	assert.NoError(t, err)
@@ -152,7 +152,7 @@ func TestLoadAllowlist_InvalidYAML(t *testing.T) {
 	// Write valid initial allowlist
 	initialContent := `podAllowlist:
   - namespace: "production"
-    serviceAccountName: "web-app"
+    ownerName: "web-app"
 `
 	err := os.WriteFile(configPath, []byte(initialContent), 0644)
 	assert.NoError(t, err)
@@ -166,7 +166,7 @@ func TestLoadAllowlist_InvalidYAML(t *testing.T) {
 	// Write invalid YAML
 	invalidContent := `podAllowlist:
   - namespace: "production"
-    serviceAccountName: "web-app"
+    ownerName: "web-app"
   invalid_yaml: [[[
 `
 	err = os.WriteFile(configPath, []byte(invalidContent), 0644)
@@ -208,16 +208,16 @@ func TestLoadAllowlist_SkipsEmptyEntries(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "cpu-burst-allowlist.yaml")
 
-	// Write allowlist with entries that have empty namespace or serviceAccountName
+	// Write allowlist with entries that have empty namespace or ownerName
 	content := `podAllowlist:
   - namespace: "production"
-    serviceAccountName: "web-app"
+    ownerName: "web-app"
   - namespace: ""
-    serviceAccountName: "empty-ns"
+    ownerName: "empty-ns"
   - namespace: "empty-sa"
-    serviceAccountName: ""
+    ownerName: ""
   - namespace: "staging"
-    serviceAccountName: "api"
+    ownerName: "api"
 `
 	err := os.WriteFile(configPath, []byte(content), 0644)
 	assert.NoError(t, err)
@@ -228,7 +228,7 @@ func TestLoadAllowlist_SkipsEmptyEntries(t *testing.T) {
 	// Valid entries should be present
 	assert.True(t, w.IsPodAllowed("production", "web-app"))
 	assert.True(t, w.IsPodAllowed("staging", "api"))
-	// Entries with empty namespace or serviceAccountName should be skipped
+	// Entries with empty namespace or ownerName should be skipped
 	assert.Equal(t, 2, w.entryCount())
 }
 
@@ -239,7 +239,7 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 	// Write the initial allow list
 	writeConfigMapVersion(t, tmpDir, 1, `podAllowlist:
   - namespace: "production"
-    serviceAccountName: "web-app"
+    ownerName: "web-app"
 `)
 
 	w := NewAllowlistWatcher(configPath)
@@ -257,7 +257,7 @@ func TestAllowlistWatcher_RunWithFileReload(t *testing.T) {
 	// Simulate a kubelet atomic ConfigMap update: new timestamped dir + ..data swap.
 	updateConfigMapVersion(t, tmpDir, 2, `podAllowlist:
   - namespace: "staging"
-    serviceAccountName: "api-server"
+    ownerName: "api-server"
 `)
 
 	// Wait for the debounce timer + reload

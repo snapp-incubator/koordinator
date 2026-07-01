@@ -25,6 +25,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientset "k8s.io/client-go/kubernetes"
 	clientcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -52,6 +53,7 @@ func NewQOSManager(
 	cfg *framework.Config,
 	schema *apiruntime.Scheme,
 	kubeClient clientset.Interface,
+	kubeRestConf *rest.Config,
 	nodeName string,
 	statesInformer statesinformer.StatesInformer,
 	metricCache metriccache.MetricCache,
@@ -72,6 +74,7 @@ func NewQOSManager(
 		MetricCache:              metricCache,
 		EventRecorder:            recorder,
 		KubeClient:               kubeClient,
+		KubeRestConf:             kubeRestConf,
 		EvictVersion:             evictVersion,
 		Config:                   cfg,
 		MetricAdvisorConfig:      metricAdvisorConfig,

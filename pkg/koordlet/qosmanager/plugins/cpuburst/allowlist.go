@@ -29,9 +29,12 @@ import (
 )
 
 // PodAllowlistEntry represents one entry in the allowlist ConfigMap.
+// A pod is allowed when its namespace and the name of its original (top-level)
+// owner -- e.g. the Deployment, StatefulSet or Argo Rollout that controls it --
+// both match an entry.
 type PodAllowlistEntry struct {
-	Namespace          string `yaml:"namespace"`
-	ServiceAccountName string `yaml:"serviceAccountName"`
+	Namespace string `yaml:"namespace"`
+	OwnerName string `yaml:"ownerName"`
 }
 
 // podAllowlistConfig represents the parsed ConfigMap data.
@@ -41,11 +44,11 @@ type podAllowlistConfig struct {
 
 // AllowlistWatcher watches a mounted ConfigMap file for the CPU burst allowlist.
 // It uses fsnotify to detect changes and provides a thread-safe lookup method.
-// The internal storage is a map of namespace -> set of serviceAccountNames for O(1) lookup.
+// The internal storage is a map of namespace -> set of owner names for O(1) lookup.
 type AllowlistWatcher struct {
 	sync.RWMutex
 	configPath string
-	// allowlist stores namespace -> set of serviceAccountNames for O(1) lookup.
+	// allowlist stores namespace -> set of owner names for O(1) lookup.
 	allowlist map[string]map[string]struct{}
 	watcher   *fsnotify.Watcher
 }
@@ -159,14 +162,14 @@ func (w *AllowlistWatcher) loadAllowlist() {
 
 	newAllowlist := make(map[string]map[string]struct{})
 	for _, entry := range config.PodAllowlist {
-		if entry.Namespace == "" || entry.ServiceAccountName == "" {
-			klog.V(5).Infof("skipping cpuBurst allowlist entry with empty namespace or serviceAccountName: %+v", entry)
+		if entry.Namespace == "" || entry.OwnerName == "" {
+			klog.V(5).Infof("skipping cpuBurst allowlist entry with empty namespace or ownerName: %+v", entry)
 			continue
 		}
 		if newAllowlist[entry.Namespace] == nil {
 			newAllowlist[entry.Namespace] = make(map[string]struct{})
 		}
-		newAllowlist[entry.Namespace][entry.ServiceAccountName] = struct{}{}
+		newAllowlist[entry.Namespace][entry.OwnerName] = struct{}{}
 	}
 
 	w.Lock()
@@ -177,8 +180,9 @@ func (w *AllowlistWatcher) loadAllowlist() {
 		w.configPath, w.entryCount(), len(newAllowlist))
 }
 
-// IsPodAllowed checks if a pod with the given namespace and serviceAccountName is in the allowlist.
-func (w *AllowlistWatcher) IsPodAllowed(namespace, serviceAccountName string) bool {
+// IsPodAllowed checks if a pod whose original owner has the given name is in
+// the allowlist for the given namespace.
+func (w *AllowlistWatcher) IsPodAllowed(namespace, ownerName string) bool {
 	w.RLock()
 	defer w.RUnlock()
 
@@ -186,7 +190,7 @@ func (w *AllowlistWatcher) IsPodAllowed(namespace, serviceAccountName string) bo
 	if !ok {
 		return false
 	}
-	_, found := nsEntries[serviceAccountName]
+	_, found := nsEntries[ownerName]
 	return found
 }
 

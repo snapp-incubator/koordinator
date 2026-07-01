@@ -173,15 +173,31 @@ type cpuBurst struct {
 	nodeCPUBurstStrategy  *slov1alpha1.CPUBurstStrategy
 	containerLimiter      map[string]*burstLimiter
 	allowlistWatcher      *AllowlistWatcher
+	ownerResolver         podOwnerResolver
 }
 
 func New(opt *framework.Options) framework.QOSStrategy {
 	var watcher *AllowlistWatcher
+	var resolver podOwnerResolver
 	// The allowlist is opt-in: it is only enforced when explicitly enabled via
-	// the cpu-burst-allowlist-enabled flag. When enabled, only pods listed in
-	// the allowlist ConfigMap receive CPU burst.
+	// the cpu-burst-allowlist-enabled flag. When enabled, only pods whose
+	// namespace + original owner (Deployment/StatefulSet/Argo Rollout/...) are
+	// listed in the allowlist ConfigMap receive CPU burst.
 	if opt.CPUBurstAllowlistEnabled && opt.CPUBurstAllowlistPath != "" {
 		watcher = NewAllowlistWatcher(opt.CPUBurstAllowlistPath)
+		// The owner resolver walks pod ownerReferences up to the original parent
+		// via the dynamic client. It needs a kube rest config; if absent the
+		// allowlist stays restrictive (annotated pods fall back to node config).
+		if opt.KubeRestConf != nil {
+			r, err := newOwnerResolver(opt.KubeRestConf)
+			if err != nil {
+				klog.Warningf("failed to create cpu burst owner resolver: %v; allowlist will fall back to node config for annotated pods", err)
+			} else {
+				resolver = r
+			}
+		} else {
+			klog.Warningf("cpu burst allowlist enabled but kube rest config is nil; allowlist will fall back to node config for annotated pods")
+		}
 	}
 	return &cpuBurst{
 		reconcileInterval:     time.Duration(opt.Config.ReconcileIntervalSeconds) * time.Second,
@@ -192,6 +208,7 @@ func New(opt *framework.Options) framework.QOSStrategy {
 		cgroupReader:          opt.CgroupReader,
 		containerLimiter:      make(map[string]*burstLimiter),
 		allowlistWatcher:      watcher,
+		ownerResolver:         resolver,
 	}
 }
 
@@ -679,9 +696,28 @@ func calcStaticCPUBurstVal(container *corev1.Container, burstCfg *slov1alpha1.CP
 // use node config by default, overlap if pod specify config
 func (b *cpuBurst) genPodBurstConfig(pod *corev1.Pod, nodeCfg *slov1alpha1.CPUBurstConfig) *slov1alpha1.CPUBurstConfig {
 	if b.allowlistWatcher != nil {
-		if !b.allowlistWatcher.IsPodAllowed(pod.Namespace, pod.Spec.ServiceAccountName) {
-			klog.V(6).Infof("pod %v/%v not in cpu burst allowlist, skipping", pod.Namespace, pod.Name)
-			return nodeCfg
+		// The allowlist only governs pods that opt into koordinator-managed
+		// per-pod config (any koordinator.sh/ annotation). Such a pod is allowed
+		// only when its namespace + original owner name are in the allowlist;
+		// otherwise its own burst annotation is ignored and the node default
+		// config is applied. If the owner can't be resolved, the pod has no
+		// controller owner, an owner in the chain can't be fetched, or no
+		// resolver is configured -- we behave the same way as "not in the
+		// allowlist".
+		if hasKoordAnnotation(pod) {
+			if b.ownerResolver == nil {
+				klog.V(6).Infof("pod %v/%v has no owner resolver, use node config", pod.Namespace, pod.Name)
+				return nodeCfg
+			}
+			ownerName, err := b.ownerResolver.ResolveTopOwnerName(pod)
+			if err != nil {
+				klog.V(6).Infof("pod %v/%v owner unresolved (%v), use node config", pod.Namespace, pod.Name, err)
+				return nodeCfg
+			}
+			if !b.allowlistWatcher.IsPodAllowed(pod.Namespace, ownerName) {
+				klog.V(6).Infof("pod %v/%v owner %q not in cpu burst allowlist, use node config", pod.Namespace, pod.Name, ownerName)
+				return nodeCfg
+			}
 		}
 	}
 

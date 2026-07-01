@@ -18,6 +18,7 @@ package framework
 
 import (
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 
 	"github.com/koordinator-sh/koordinator/pkg/koordlet/metriccache"
@@ -32,6 +33,7 @@ type Options struct {
 	MetricCache              metriccache.MetricCache
 	EventRecorder            record.EventRecorder
 	KubeClient               clientset.Interface
+	KubeRestConf             *rest.Config
 	EvictVersion             string
 	Config                   *Config
 	MetricAdvisorConfig      *ma.Config

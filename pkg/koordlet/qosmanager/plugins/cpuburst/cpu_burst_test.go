@@ -18,6 +18,7 @@ package cpuburst
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -66,6 +67,17 @@ func newTestCPUBurst(opt *framework.Options) *cpuBurst {
 		cgroupReader:          resourceexecutor.NewCgroupReader(),
 		containerLimiter:      make(map[string]*burstLimiter),
 	}
+}
+
+// stubOwnerResolver is a fake podOwnerResolver for tests; it ignores the pod and
+// always returns the configured owner name (and optional error).
+type stubOwnerResolver struct {
+	name string
+	err  error
+}
+
+func (s *stubOwnerResolver) ResolveTopOwnerName(pod *corev1.Pod) (string, error) {
+	return s.name, s.err
 }
 
 type testThrottledMetrics struct {
@@ -417,8 +429,20 @@ func TestCPUBurst_getNodeStateForBurst(t *testing.T) {
 
 func Test_genPodBurstConfig(t *testing.T) {
 
+	// fakeOwnerResolver is a test stand-in for the dynamic-client ownerResolver;
+	// it returns a fixed owner name for every pod.
+	fakeOwnerResolver := func(name string) podOwnerResolver {
+		return &stubOwnerResolver{name: name}
+	}
+
+	// fakeOwnerResolverErr returns a stub that fails resolution with err,
+	// simulating an owner-fetch error (NotFound, RBAC denied, ...).
+	fakeOwnerResolverErr := func(err error) podOwnerResolver {
+		return &stubOwnerResolver{err: err}
+	}
+
 	// allowlistWith builds an AllowlistWatcher pre-populated with the given
-	// namespace/serviceAccountName pairs, so tests can exercise the allow path
+	// namespace/ownerName pairs, so tests can exercise the allow path
 	// without touching the filesystem.
 	allowlistWith := func(entries ...[2]string) *AllowlistWatcher {
 		w := NewAllowlistWatcher("/tmp/nonexistent-allowlist")
@@ -435,11 +459,12 @@ func Test_genPodBurstConfig(t *testing.T) {
 	}
 
 	type args struct {
-		podNamespace          string
-		podServiceAccountName string
-		podCfg                *slov1alpha1.CPUBurstConfig
-		nodeCfg               *slov1alpha1.CPUBurstConfig
-		allowlistWatcher      *AllowlistWatcher
+		podNamespace     string
+		podOwnerName     string
+		podCfg           *slov1alpha1.CPUBurstConfig
+		nodeCfg          *slov1alpha1.CPUBurstConfig
+		allowlistWatcher *AllowlistWatcher
+		ownerResolver    podOwnerResolver
 	}
 
 	tests := []struct {
@@ -531,12 +556,12 @@ func Test_genPodBurstConfig(t *testing.T) {
 			},
 		},
 		{
-			// When the allowlist is enabled and the pod's serviceAccountName is in
+			// When the allowlist is enabled and the pod's original owner is in
 			// it, the pod's own burst annotation is applied (merged over the node config).
 			name: "use-pod-config-when-pod-in-allowlist",
 			args: args{
-				podNamespace:          "default",
-				podServiceAccountName: "web-app",
+				podNamespace: "default",
+				podOwnerName: "web-deploy",
 				podCfg: &slov1alpha1.CPUBurstConfig{
 					Policy:          slov1alpha1.CPUBurstOnly,
 					CPUBurstPercent: ptr.To[int64](500),
@@ -547,11 +572,69 @@ func Test_genPodBurstConfig(t *testing.T) {
 					CFSQuotaBurstPercent:       ptr.To[int64](300),
 					CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
 				},
-				allowlistWatcher: allowlistWith([2]string{"default", "web-app"}),
+				allowlistWatcher: allowlistWith([2]string{"default", "web-deploy"}),
+				ownerResolver:    fakeOwnerResolver("web-deploy"),
 			},
 			want: &slov1alpha1.CPUBurstConfig{
 				Policy:                     slov1alpha1.CPUBurstOnly,
 				CPUBurstPercent:            ptr.To[int64](500),
+				CFSQuotaBurstPercent:       ptr.To[int64](300),
+				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+			},
+		},
+		{
+			// When the allowlist is enabled and the pod's owner can't be resolved
+			// (e.g. an owner fetch failed), the pod is treated as not allowlisted
+			// even if the would-be owner name is in the list: its own burst
+			// annotation is ignored and node config is applied.
+			name: "use-node-config-when-owner-resolution-fails",
+			args: args{
+				podNamespace: "default",
+				podCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:          slov1alpha1.CPUBurstOnly,
+					CPUBurstPercent: ptr.To[int64](500),
+				},
+				nodeCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:                     slov1alpha1.CPUBurstAuto,
+					CPUBurstPercent:            ptr.To[int64](1000),
+					CFSQuotaBurstPercent:       ptr.To[int64](300),
+					CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+				},
+				allowlistWatcher: allowlistWith([2]string{"default", "web-deploy"}),
+				ownerResolver:    fakeOwnerResolverErr(errors.New("fetch owner ReplicaSet default/rs-1: not found")),
+			},
+			want: &slov1alpha1.CPUBurstConfig{
+				Policy:                     slov1alpha1.CPUBurstAuto,
+				CPUBurstPercent:            ptr.To[int64](1000),
+				CFSQuotaBurstPercent:       ptr.To[int64](300),
+				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+			},
+		},
+		{
+			// When the allowlist is enabled and the pod has no controller owner
+			// (a standalone pod), resolution fails and the pod is treated as not
+			// allowlisted -- even if the pod's own name were in the list. Uses a
+			// real zero-value ownerResolver, which short-circuits on the
+			// no-controller path without needing an API client.
+			name: "use-node-config-when-pod-has-no-owner",
+			args: args{
+				podNamespace: "default",
+				podCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:          slov1alpha1.CPUBurstOnly,
+					CPUBurstPercent: ptr.To[int64](500),
+				},
+				nodeCfg: &slov1alpha1.CPUBurstConfig{
+					Policy:                     slov1alpha1.CPUBurstAuto,
+					CPUBurstPercent:            ptr.To[int64](1000),
+					CFSQuotaBurstPercent:       ptr.To[int64](300),
+					CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
+				},
+				allowlistWatcher: allowlistWith([2]string{"default", "test-pod"}),
+				ownerResolver:    &ownerResolver{},
+			},
+			want: &slov1alpha1.CPUBurstConfig{
+				Policy:                     slov1alpha1.CPUBurstAuto,
+				CPUBurstPercent:            ptr.To[int64](1000),
 				CFSQuotaBurstPercent:       ptr.To[int64](300),
 				CFSQuotaBurstPeriodSeconds: ptr.To[int64](600),
 			},
@@ -566,15 +649,15 @@ func Test_genPodBurstConfig(t *testing.T) {
 					Namespace:   tt.args.podNamespace,
 					Annotations: make(map[string]string),
 				},
-				Spec: corev1.PodSpec{
-					ServiceAccountName: tt.args.podServiceAccountName,
-				},
 			}
 			if tt.args.podCfg != nil {
 				annoStr, _ := json.Marshal(tt.args.podCfg)
 				pod.Annotations[slov1alpha1.AnnotationPodCPUBurst] = string(annoStr)
 			}
-			b := &cpuBurst{allowlistWatcher: tt.args.allowlistWatcher}
+			b := &cpuBurst{
+				allowlistWatcher: tt.args.allowlistWatcher,
+				ownerResolver:    tt.args.ownerResolver,
+			}
 			if got := b.genPodBurstConfig(pod, tt.args.nodeCfg); !reflect.DeepEqual(got, tt.want) {
 				gotStr, _ := json.Marshal(got)
 				wantStr, _ := json.Marshal(tt.want)
